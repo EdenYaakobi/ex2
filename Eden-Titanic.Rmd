@@ -1,0 +1,198 @@
+---
+title: "Eden"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## R Markdown
+
+
+For your RScript:
+```{r}
+#setwd("C:/Users/User/Desktop/Titanic")
+```
+
+
+For rmarkdown:
+```{r setup}
+#knitr::opts_knit$set(root.dir = ("C:\Users\User\Desktop\Titanic")
+getwd()
+
+```
+
+
+
+## Load the'test' and 'train' sets - treat empty values as Na's 
+
+```{r}
+setwd("C:/Users/User/Desktop/Titanic")
+train <- read.csv("train.csv",na.strings = "")
+test<-read.csv("test.csv",na.strings = "")
+```
+
+##  Data Clening
+
+1. 1. Turning the survived and Pclass values into factors features - train setst set
+
+```{r}
+   train$Survived <- as.factor(train$Survived)
+   train$Pclass <- as.factor(train$Pclass)
+```
+
+2. Adding 'Survived'column to Test Set and turning the survived and Pclass values into factors features - test set
+```{r}
+  test$survived <- NA 
+  test$survived <- as.factor(test$survived)
+  test$Pclass <- as.factor(test$Pclass)
+
+```
+
+3. PassengerId won't help us much predicting the paseenger's destiny so we can take this property off and  we can see that the Name column is currntly not being helpful, but we can at least extarct 
+the title from it. 
+There are quite a few titles but I would like to reduce them all to Mrs, Miss Mr and Master.To do so I will need to use a fuction which srerches for substrings. Grab title from passenger Name
+
+```{r}
+
+  train<-subset(train,select = -c(1))
+  train$Title <- gsub('(.*, )|(\\..*)', '', train$Name)
+  test$Title <- gsub('(.*, )|(\\..*)', '', test$Name)
+  table(train$Sex, train$Title)
+  table(test$Sex,test$Title)
+  otherTitle <-c ('Capt','Col','Don','Dr','Jonkheer','Lady','Major','Rev','Sir','the Countess','Dona','Dr')
+  train$Title[train$Title == 'Mlle'] <- 'Miss'
+  test$Title[test$Title == 'Mlle'] <- 'Miss'
+  train$Title[train$Title == 'Ms'] <- 'Miss'
+  test$Title[test$Title == 'Ms'] <- 'Miss'
+  train$Title[train$Title == 'Mme'] <- 'Mrs'
+  test$Title[test$Title == 'Mme'] <- 'Mrs'
+  # apply 'other' to other Title 
+  train$Title[train$Title %in% otherTitle] <- "other"
+  test$Title[test$Title %in% otherTitle] <- "other"
+  # Check the title again
+  table(train$Sex, train$Title)
+  table(test$Sex, test$Title)
+ 
+
+```
+4. Now, we can check the family size, We will put it a new column 'FamilySize'
+We will calculate the size that way > size = SibSp+Parch +1 (the passenger)s
+
+```{r}
+train$FamilySize <- train$SibSp + train$Parch + 1
+test$FamilySize <- test$SibSp + test$Parch + 1
+
+# let's discretize family size
+train$DisSize[train$FamilySize == 1] <- 'alone'
+train$DisSize[train$FamilySize < 4 & train$FamilySize >1] <- 'small'
+train$DisSize[train$FamilySize > 3 ] <- 'big'
+
+test$DisSize[test$FamilySize==1] <- 'alone'
+test$DisSize[test$FamilySize < 4 & test$FamilySize >1] <- 'small'
+test$DisSize[test$FamilySize > 3 ] <- 'big'
+
+# let's take a look at the Fare column and divide it into 4 groups 
+train$FClass[train$Fare <= 10] <- 'Low'
+train$FClass[train$Fare <= 40 & train$Fare > 10] <- 'Noraml'
+train$FClass[train$Fare <= 100 & train$Fare > 40] <- 'Med'
+train$FClass[train$Fare > 100] <- 'High'
+test$FClass[test$Fare <= 10] <- 'Low'
+test$FClass[test$Fare <= 40 & test$Fare > 10] <- 'Noraml'
+test$FClass[test$Fare <= 100 & test$Fare > 40] <- 'Med'
+test$FClass[test$Fare > 100] <- 'High'
+
+```
+
+5. We are going to handle the 'Age'column 
+
+```{r}
+library(rpart)
+train<-subset(train,select = -c(3,8,10))
+test<-subset(test,select = -c(3,8,10))
+
+train$sibSpDis <- sapply(train$SibSp, FUN=function(x) {if(x >=3) x ='flag' else x=x})
+test$sibSpDis <- sapply(test$SibSp, FUN=function(x) {if(x >=3) x ='flag' else x=x})
+
+train$sibSpDis<- as.factor(train$sibSpDis)
+test$sibSpDis<- as.factor(test$sibSpDis)
+
+
+AgeReplace <- rpart(Age~ Pclass + Sex + FamilySize + Title + Parch + Embarked + DisSize + FClass + sibSpDis, data=train[!is.na(train$Age),],method="anova")
+AgePredict <- predict(AgeReplace, train[is.na(train$Age),])
+train$Age[is.na(train$Age)] <- AgePredict
+
+AgeReplace <- rpart(Age ~ Pclass + Sex + FamilySize + Title + Parch + Embarked + DisSize + FClass + sibSpDis, data=test[!is.na(test$Age),],method="anova")
+AgePredict <- predict(AgeReplace, test[is.na(test$Age),])
+test$Age[is.na(test$Age)] <- AgePredict
+
+```
+
+
+##Random Forest 
+
+
+```{r}
+#install.packages("party")
+#install.packages("caret")
+library(party)
+library(caret)
+library(randomForest)
+
+
+set.seed(123)
+
+train$Age[is.na(train$Age)] <- -1
+train$Fare[is.na(train$Fare)] <- median(train$Fare, na.rm=TRUE)
+train$Embarked[is.na(train$Embarked)] = "S"
+
+test$Age[is.na(test$Age)] <- -1
+test$Fare[is.na(test$Fare)] <- median(test$Fare, na.rm=TRUE)
+test$Embarked[is.na(test$Embarked)] = "S"
+
+fit <- randomForest(as.factor(Survived) ~ Pclass + Sex + FamilySize + Title + Parch + Embarked + DisSize + FClass + sibSpDis,
+                      data=train, 
+                      importance=TRUE, 
+                      ntree=2000)
+
+varImpPlot(fit)
+Prediction <- predict(fit, test)
+submit <- data.frame(PassengerId = test$PassengerId, Survived = Prediction)
+write.csv(submit, file = "C:/Users/User/Desktop/Titanic/firstforest.csv", row.names = FALSE)
+```
+
+## RPart
+
+```{r}
+library(rpart)
+tree <- rpart(Survived ~ Pclass + Sex + FamilySize + Title + Parch + Embarked + DisSize + FClass + sibSpDis,
+              data=train,
+              method="class")
+
+Prediction <- predict(tree, test, type = "class")
+submit <- data.frame(PassengerId = test$PassengerId, Survived = Prediction)
+ write.csv(submit, file = "C:/Users/User/Desktop/Titanic/firsTree", row.names = FALSE)
+ 
+```
+
+C5.0
+
+```{r}
+indices = sample(1:nrow(train),nrow(train)*0.75)
+
+#install.packages(C50)
+library(C50)
+set.seed(123)
+ToTrain<- train[indices,]
+ToTest<- train[-indices,]
+C50 <-C5.0(Survived  ~ Pclass + Sex + FamilySize + Title + Parch + Embarked + DisSize + FClass + sibSpDis , data=train)
+Prediction <- predict(C50,test)
+submit <- data.frame(PassengerId = test$PassengerId, Survived = Prediction)
+write.csv(toSubmit, file = "C:/Users/User/Desktop/Titanic/firstC5.0", row.names = FALSE)
+
+
+```
+
+
+
